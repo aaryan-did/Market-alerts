@@ -61,11 +61,12 @@ MARKET_NEWS_FEEDS = {
 }
 
 # --- "Insightful reads" -- longer-form finance + property, AU + global.
-#     Always digest, never priority. Swap these out for whatever you like. ---
+#     Always digest, never priority. Swap these out for whatever you like.
+#     (Livewire Markets and Firstlinks were removed -- neither actually
+#     publishes a working RSS feed, despite URLs that look like they should.
+#     If you find real ones for either, they're easy to add back here.) ---
 INSIGHT_FEEDS = {
     "Motley Fool Australia": "https://www.fool.com.au/feed/",
-    "Livewire Markets": "https://www.livewiremarkets.com/feeds/all.rss",
-    "Firstlinks": "https://www.firstlinks.com.au/rss",
     "A Wealth of Common Sense": "https://awealthofcommonsense.com/feed/",
     "Of Dollars and Data": "https://ofdollarsanddata.com/feed/",
 }
@@ -78,21 +79,29 @@ EQUITYMATES_ARCHIVE_URL = "https://equitymates.beehiiv.com/"
 # --- Crisis keywords: any headline (from ANY feed) matching these fires
 #     immediately instead of waiting for the digest. Case-insensitive. ---
 CRISIS_KEYWORDS = [
+    # Financial / market crisis
     "recession", "market crash", "plunge", "plunges", "sell-off", "selloff",
     "bank collapse", "bank failure", "bailout", "contagion", "default",
     "credit downgrade", "downgraded", "circuit breaker", "emergency rate",
     "black swan", "systemic risk", "bank run", "liquidity crisis",
-    "war", "invasion", "sanctions", "oil shock", "supply shock",
+    "sanctions", "oil shock", "supply shock",
     "inflation surge", "hyperinflation", "currency crisis", "debt crisis",
+    # Geopolitical / military -- the kind of event that moves markets AND
+    # is something he'd want to know about immediately regardless
+    "war", "invasion", "airstrike", "air strike", "military strike",
+    "missile strike", "missile attack", "bombing", "bombed", "bombs hit",
+    "nuclear facility", "nuclear site", "attack on", "escalation",
+    "declares war", "troops deployed", "coup",
 ]
 
-# --- Index-move check (via Stooq, free, no key) ---
-# symbol -> (Stooq ticker, friendly name, % move threshold)
+# --- Index-move check (via Yahoo Finance's public chart endpoint, free,
+#     no key needed) ---
+# symbol -> (Yahoo Finance ticker, friendly name, % move threshold)
 INDEX_CHECKS = [
-    ("^spx", "S&P 500", 2.0),
-    ("^ndq", "Nasdaq", 2.0),
-    ("^dji", "Dow Jones", 2.0),
-    ("^axjo", "ASX 200", 2.0),
+    ("^GSPC", "S&P 500", 2.0),
+    ("^IXIC", "Nasdaq", 2.0),
+    ("^DJI", "Dow Jones", 2.0),
+    ("^AXJO", "ASX 200", 2.0),
 ]
 
 STATE_FILE = Path(__file__).parent / "seen.json"
@@ -207,27 +216,31 @@ def send_ntfy(title, message, priority="default", tags=None, click_url=None):
 
 
 def check_index_moves(state):
-    """Free, no-key daily % change check via Stooq CSV endpoint."""
+    """Free, no-key daily % change check via Yahoo Finance's public chart API."""
     alerts = []
     for symbol, name, threshold in INDEX_CHECKS:
         try:
-            url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+            url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                   f"?range=5d&interval=1d")
             req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urlopen(req, timeout=15) as resp:
-                lines = resp.read().decode("utf-8").strip().splitlines()
-            if len(lines) < 3:
+                data = json.loads(resp.read().decode("utf-8"))
+            result = data["chart"]["result"][0]
+            timestamps = result["timestamp"]
+            closes = result["indicators"]["quote"][0]["close"]
+            # Drop any None entries (the most recent bar is often still in
+            # progress and comes back as null for close)
+            valid = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
+            if len(valid) < 2:
                 continue
-            # CSV: Date,Open,High,Low,Close,Volume -- last two rows
-            last = lines[-1].split(",")
-            prev = lines[-2].split(",")
-            last_close = float(last[4])
-            prev_close = float(prev[4])
+            (_, prev_close), (last_t, last_close) = valid[-2], valid[-1]
             pct = (last_close - prev_close) / prev_close * 100
-            key = f"{symbol}:{last[0]}"
+            day_str = datetime.fromtimestamp(last_t, tz=timezone.utc).strftime("%Y-%m-%d")
+            key = f"{symbol}:{day_str}"
             if abs(pct) >= threshold and state["last_index_check"].get(symbol) != key:
                 direction = "up" if pct > 0 else "down"
                 alerts.append(
-                    f"{name} is {direction} {abs(pct):.1f}% (close {last_close:,.1f} on {last[0]})"
+                    f"{name} is {direction} {abs(pct):.1f}% (close {last_close:,.1f} on {day_str})"
                 )
                 state["last_index_check"][symbol] = key
         except Exception as e:

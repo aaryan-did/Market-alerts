@@ -13,9 +13,15 @@ your computer is off, and costs nothing.
   "insight" sources and Equity Mates' daily headline), filters them, and
   pushes notifications to your phone via [ntfy.sh](https://ntfy.sh) — a free
   push-notification service that needs no account and no phone number.
-- **Priority items** (RBA/Fed decisions, crisis-keyword headlines, big index
-  moves) are pushed the moment they're found — the workflow checks every 30
-  minutes, so worst case there's a 30-minute delay.
+- **Priority items** (RBA/Fed decisions, crisis-keyword headlines — both
+  financial crisis terms and geopolitical/military ones like war, airstrikes,
+  or missile attacks — and big index moves) are pushed the moment they're
+  found — the workflow checks every 30 minutes, so worst case there's a
+  30-minute delay. Note this only catches what shows up in the market-news
+  feeds already configured (Yahoo Finance, MarketWatch, CNBC, BBC, The
+  Guardian, ABC Australia) — it's not a general world-news alert service,
+  but major geopolitical events that move markets are reliably covered by
+  those outlets.
 - **Everything else** is queued quietly and only sent as a batched digest
   notification at ~6:30am, a ~7:00am catch-up (only fires if something was
   genuinely still missing — e.g. Equity Mates posted a few minutes late),
@@ -124,6 +130,13 @@ for a login or subscription.
   webpage. If beehiiv ever redesigns that page, this is the piece most
   likely to need updating (look for a `WARN: Equity Mates archive fetch
   failed` line in the Actions log).
+- **Livewire Markets and Firstlinks were removed** from the insight feeds —
+  neither actually has a working RSS feed despite URLs online that look
+  like they should (both just serve regular HTML pages). If you find
+  genuine RSS URLs for either, they're easy to add back in `INSIGHT_FEEDS`.
+- **Index moves** are checked via Yahoo Finance's public chart API
+  (`query1.finance.yahoo.com/v8/finance/chart/...`), the same underlying
+  data source used by most free finance tools — no key needed.
 - RSS feed URLs occasionally change or go stale. If a source stops showing
   up in your digest, check the Actions log for a `WARN:` line naming it —
   that means the feed needs updating.
