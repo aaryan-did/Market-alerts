@@ -27,6 +27,11 @@ your computer is off, and costs nothing.
 - `seen.json` keeps track of what's already been sent (and what's queued but
   not yet sent), so nothing repeats. The workflow commits it back to the
   repo after every run.
+- **First run is special:** with an empty `seen.json`, the script silently
+  records every existing item from every feed without sending a single
+  notification — otherwise the first run would fire off years of old Fed
+  press releases as "urgent" alerts all at once. Only items that appear
+  *after* that first run will ever trigger a notification.
 
 ## Setup (about 10 minutes)
 

@@ -38,10 +38,13 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "CHANGE-ME-jamies-market-alerts-8821")
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 # --- Priority sources: always sent instantly, never batched ---
+# Deliberately just the Monetary Policy feed, not "All Press Releases" --
+# the all-press feed includes routine enforcement actions, staff
+# appointments, etc. that aren't actually rate-decision-relevant and would
+# just be noise here.
 RATE_DECISION_FEEDS = {
     "RBA": "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
     "Fed (Monetary Policy)": "https://www.federalreserve.gov/feeds/press_monetary.xml",
-    "Fed (All Press Releases)": "https://www.federalreserve.gov/feeds/press_all.xml",
 }
 
 # --- General market headlines (ASX + US): filtered for crisis keywords
@@ -235,21 +238,27 @@ def check_index_moves(state):
 def main():
     state = load_state()
     seen = set(state["seen_ids"])
+    first_run = len(seen) == 0  # nothing recorded yet -- this is a cold start
+    if first_run:
+        log("First run detected: seeding known items silently, no alerts will "
+            "be sent this run. Future runs will only alert on genuinely new items.")
     new_seen = []
 
     priority_items = []   # list of (title, link, source)
     digest_items = {}     # source -> list of (title, link)
 
-    # 1. Rate-decision feeds -- ALWAYS priority
+    # 1. Rate-decision feeds -- ALWAYS priority (unless this is the first run)
     for source, url in RATE_DECISION_FEEDS.items():
         for entry in fetch_feed(source, url):
             eid = entry_id(source, entry)
             if eid in seen:
                 continue
             new_seen.append(eid)
-            priority_items.append((entry.get("title", "Untitled"), entry.get("link", ""), source))
+            if not first_run:
+                priority_items.append((entry.get("title", "Untitled"), entry.get("link", ""), source))
 
     # 2. General market feeds -- crisis keywords go priority, rest go digest
+    #    (nothing is sent on the first run -- see note above)
     for source, url in MARKET_NEWS_FEEDS.items():
         count = 0
         for entry in fetch_feed(source, url):
@@ -257,6 +266,8 @@ def main():
             if eid in seen:
                 continue
             new_seen.append(eid)
+            if first_run:
+                continue
             title = entry.get("title", "Untitled")
             link = entry.get("link", "")
             summary = entry.get("summary", "")
@@ -267,7 +278,7 @@ def main():
                     digest_items.setdefault(source, []).append((title, link))
                     count += 1
 
-    # 3. Insight/long-read feeds -- always digest
+    # 3. Insight/long-read feeds -- always digest (skipped on first run)
     for source, url in INSIGHT_FEEDS.items():
         count = 0
         for entry in fetch_feed(source, url):
@@ -275,6 +286,8 @@ def main():
             if eid in seen:
                 continue
             new_seen.append(eid)
+            if first_run:
+                continue
             if count < MAX_DIGEST_ITEMS_PER_SOURCE:
                 digest_items.setdefault(source, []).append(
                     (entry.get("title", "Untitled"), entry.get("link", ""))
@@ -282,16 +295,21 @@ def main():
                 count += 1
 
     # 4. Equity Mates daily newsletter -- always digest, one post per run
+    #    (skipped on first run)
     em_latest = fetch_equitymates_latest()
     if em_latest:
         title, link = em_latest
         eid = f"Equity Mates:{link}"
         if eid not in seen:
             new_seen.append(eid)
-            digest_items.setdefault("Equity Mates Daily", []).append((title, link))
+            if not first_run:
+                digest_items.setdefault("Equity Mates Daily", []).append((title, link))
 
-    # 5. Index-move check -- priority
-    index_alerts = check_index_moves(state)
+    # 5. Index-move check -- priority (skipped on first run, but the
+    #    baseline close is still recorded so tomorrow's comparison works)
+    index_alerts = [] if first_run else check_index_moves(state)
+    if first_run:
+        check_index_moves(state)  # still record today's closes as baseline, discard alerts
 
     # ---- Send priority notifications, one per item, immediately ----
     for title, link, source in priority_items:
