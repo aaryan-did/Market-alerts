@@ -1,0 +1,42 @@
+name: Market Alerts
+
+on:
+  schedule:
+    # Runs every 30 minutes, every day. GitHub cron is UTC.
+    # This deliberately covers both ASX hours (Sydney) and US market hours
+    # without you having to think about daylight saving -- the script itself
+    # only *sends* something when there's actually new/priority news, so
+    # off-hours runs are cheap no-ops.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write   # needed so the workflow can commit the updated seen.json
+
+jobs:
+  run-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run alert script
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python alerts.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "market-alerts-bot"
+          git config user.email "actions@github.com"
+          git add seen.json
+          git diff --staged --quiet || git commit -m "Update seen.json [skip ci]"
+          git push
